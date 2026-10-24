@@ -37,28 +37,33 @@ func _create_floor() -> void:
     ground.material_override = mat
     add_child(ground)
 
-const GRIBNOK_MODEL := "res://assets/characters/gribnok/Gribnok_GoblinAges_sculpt_v0_2.glb"
+const GRIBNOK_MODEL := "res://assets/characters/gribnok/Gribnok_Final.glb"
+const GRIBNOK_OLD_MODEL := "res://assets/characters/gribnok/Gribnok_GoblinAges_sculpt_v0_2.glb"
 
 func _create_goblin() -> void:
     goblin = Node3D.new()
     goblin.name = "Gribnok"
     add_child(goblin)
-    if ResourceLoader.exists(GRIBNOK_MODEL):
-        var model_scene := load(GRIBNOK_MODEL) as PackedScene
+    var selected_path := GRIBNOK_MODEL if ResourceLoader.exists(GRIBNOK_MODEL) else GRIBNOK_OLD_MODEL
+    if ResourceLoader.exists(selected_path):
+        var model_scene := load(selected_path) as PackedScene
         if model_scene != null:
             var model := model_scene.instantiate() as Node3D
             if model != null:
                 model.name = "GribnokModel"
                 goblin.add_child(model)
-                # Normalize the full imported model to 1.5 meters tall.
                 var bounds := _model_bounds(model)
                 if bounds.size.y > 0.001:
-                    model.scale = Vector3.ONE * (1.5 / bounds.size.y)
-                    model.position = Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z) * model.scale.x
-                _fix_gribnok_materials(model)
-                print("Gribnok v0.2 material fix loaded.")
+                    var factor := 1.5 / bounds.size.y
+                    model.scale = Vector3.ONE * factor
+                    model.position = Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z) * factor
+                if selected_path == GRIBNOK_OLD_MODEL:
+                    _fix_gribnok_materials(model)
+                    push_warning("Old Gribnok v0.2 active. Place new GLB at " + GRIBNOK_MODEL)
+                else:
+                    print("Gribnok detailed textured GLB loaded: ", selected_path)
                 return
-    push_warning("Gribnok GLB missing; copy it to: " + GRIBNOK_MODEL)
+    push_warning("No Gribnok GLB found. Expected " + GRIBNOK_MODEL)
     _create_placeholder_goblin()
 
 # The v0.2 GLB stores its part colors in vertex attributes, with no PBR materials.
@@ -167,7 +172,7 @@ func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  Gribnok v0.2 RENK testi  |  WASD"
+    label.text = "GOBLIN AGES  |  Gribnok DETAYLI MODEL testi  |  WASD"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 22)
     layer.add_child(label)
