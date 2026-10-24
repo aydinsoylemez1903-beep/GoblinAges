@@ -4,12 +4,18 @@ extends Node3D
 var goblin: Node3D
 var camera: Camera3D
 var goblin_speed := 5.0
+var orbit_yaw := 0.0
+var orbit_pitch := 0.18
+var orbit_distance := 2.8
+var inspecting := false
+var key_light: OmniLight3D
 
 func _ready() -> void:
     _create_environment()
     _create_floor()
     _create_goblin()
     _create_camera()
+    _create_character_light()
     _create_ui()
 
 func _create_environment() -> void:
@@ -163,18 +169,48 @@ func _create_placeholder_goblin() -> void:
 
 func _create_camera() -> void:
     camera = Camera3D.new()
-    camera.position = Vector3(0, 1.85, 2.9)
     camera.current = true
+    camera.fov = 55.0
     add_child(camera)
-    camera.look_at(Vector3(0, 0.9, 0))
+    _update_camera(1.0)
+
+func _create_character_light() -> void:
+    key_light = OmniLight3D.new()
+    key_light.name = "GribnokKeyLight"
+    key_light.light_color = Color("#ffe8d2")
+    key_light.light_energy = 1.5
+    key_light.omni_range = 5.0
+    key_light.shadow_enabled = false
+    add_child(key_light)
+
+func _update_camera(delta: float) -> void:
+    if camera == null or goblin == null:
+        return
+    var focus := goblin.global_position + Vector3(0, 0.85, 0)
+    var horizontal := orbit_distance * cos(orbit_pitch)
+    var offset := Vector3(sin(orbit_yaw) * horizontal, sin(orbit_pitch) * orbit_distance + 0.5, cos(orbit_yaw) * horizontal)
+    camera.global_position = camera.global_position.lerp(focus + offset, minf(1.0, delta * 8.0))
+    camera.look_at(focus)
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_RIGHT:
+            inspecting = event.pressed
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            orbit_distance = maxf(1.4, orbit_distance - 0.25)
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            orbit_distance = minf(7.0, orbit_distance + 0.25)
+    elif event is InputEventMouseMotion and inspecting:
+        orbit_yaw -= event.relative.x * 0.007
+        orbit_pitch = clampf(orbit_pitch - event.relative.y * 0.005, -0.35, 0.95)
 
 func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  Gribnok DETAYLI MODEL testi  |  WASD"
+    label.text = "GOBLIN AGES  |  GRIBNOK INCELEME v0.3  |  WASD hareket  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
     label.position = Vector2(24, 20)
-    label.add_theme_font_size_override("font_size", 22)
+    label.add_theme_font_size_override("font_size", 19)
     layer.add_child(label)
 
 func _physics_process(delta: float) -> void:
@@ -191,7 +227,6 @@ func _physics_process(delta: float) -> void:
         input_dir = input_dir.normalized()
         goblin.position += Vector3(input_dir.x, 0, input_dir.y) * goblin_speed * delta
         goblin.rotation.y = atan2(-input_dir.x, -input_dir.y)
-    if camera != null:
-        var target := goblin.position + Vector3(0, 1.85, 2.9)
-        camera.position = camera.position.lerp(target, minf(1.0, delta * 4.0))
-        camera.look_at(goblin.position + Vector3(0, 0.9, 0))
+    _update_camera(delta)
+    if key_light != null:
+        key_light.global_position = goblin.global_position + Vector3(-1.1, 2.25, 1.45)
