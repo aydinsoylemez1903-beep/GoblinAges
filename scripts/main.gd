@@ -67,6 +67,7 @@ func _create_floor() -> void:
     ground.material_override = mat
     add_child(ground)
 
+const GRIBNOK_RIGGED_V2 := "res://assets/characters/gribnok/Gribnok_Rig_Animated_v2.glb"
 const GRIBNOK_RIGGED := "res://assets/characters/gribnok/Gribnok_Rig_Animated_v1.glb"
 const GRIBNOK_MODEL := "res://assets/characters/gribnok/Gribnok_Final.glb"
 const GRIBNOK_OLD_MODEL := "res://assets/characters/gribnok/Gribnok_GoblinAges_sculpt_v0_2.glb"
@@ -75,7 +76,7 @@ func _create_goblin() -> void:
     goblin = Node3D.new()
     goblin.name = "Gribnok"
     add_child(goblin)
-    var selected_path := GRIBNOK_RIGGED if ResourceLoader.exists(GRIBNOK_RIGGED) else (GRIBNOK_MODEL if ResourceLoader.exists(GRIBNOK_MODEL) else GRIBNOK_OLD_MODEL)
+    var selected_path := GRIBNOK_RIGGED_V2 if ResourceLoader.exists(GRIBNOK_RIGGED_V2) else (GRIBNOK_RIGGED if ResourceLoader.exists(GRIBNOK_RIGGED) else (GRIBNOK_MODEL if ResourceLoader.exists(GRIBNOK_MODEL) else GRIBNOK_OLD_MODEL))
     if ResourceLoader.exists(selected_path):
         var model_scene := load(selected_path) as PackedScene
         if model_scene != null:
@@ -172,6 +173,10 @@ func _locate_animations(root: Node3D) -> void:
         if item is AnimationPlayer:
             locomotion_player = item as AnimationPlayer
             locomotion_player.playback_default_blend_time = 0.27
+            for clip_name in locomotion_player.get_animation_list():
+                var clip := locomotion_player.get_animation(clip_name)
+                if clip != null and (str(clip_name).to_lower().contains("walk") or str(clip_name).to_lower().contains("run") or str(clip_name).to_lower().contains("strafe") or str(clip_name).to_lower().contains("idle")):
+                    clip.loop_mode = Animation.LOOP_LINEAR
             print("Gribnok animation clips: ", locomotion_player.get_animation_list())
             return
         pending.append_array(item.get_children())
@@ -187,25 +192,40 @@ func _resolve_animation(requested: String) -> String:
             return anim
     return ""
 
-func _animate_character(delta: float, velocity_ratio: float, running: bool) -> void:
-    var blending := minf(1.0, delta * 8.0)
-    motion_blend = lerpf(motion_blend, velocity_ratio, blending)
+func _animate_character(delta: float, actual_speed: float, requested_motion: Vector2, running: bool) -> void:
+    var speed_ratio := clampf(actual_speed / sprint_speed, 0.0, 1.0)
+    motion_blend = lerpf(motion_blend, speed_ratio, minf(1.0, delta * 9.0))
     if locomotion_player != null:
         var desired := "Idle"
-        if velocity_ratio > 0.12:
-            desired = "Run" if running else "Walk"
+        if actual_speed > 0.18 and requested_motion.length_squared() > 0.01:
+            if requested_motion.y > 0.20:
+                desired = "WalkBackward"
+            elif requested_motion.x < -0.20:
+                desired = "StrafeLeft"
+            elif requested_motion.x > 0.20:
+                desired = "StrafeRight"
+            else:
+                desired = "Run" if running else "Walk"
         var resolved := _resolve_animation(desired)
+        if resolved == "" and desired != "Idle":
+            resolved = _resolve_animation("Walk")
         if resolved != "" and resolved != active_animation:
-            locomotion_player.play(resolved, 0.27)
+            locomotion_player.play(resolved, 0.24)
             active_animation = resolved
+        # Match clip cadence to actual displacement, including accelerating and braking.
+        if resolved != "" and desired != "Idle":
+            var reference_speed := sprint_speed if desired == "Run" else goblin_speed
+            if desired == "WalkBackward":
+                reference_speed = 2.4
+            if desired.begins_with("Strafe"):
+                reference_speed = 3.2
+            locomotion_player.speed_scale = clampf(actual_speed / reference_speed, 0.25, 1.65)
+        else:
+            locomotion_player.speed_scale = 1.0
         return
-    # No skeletal rig exists in the current GLB. Gentle root movement preview only.
-    # This never alters skinned vertices, limb poses or materials.
     if visual_model != null:
-        stride_phase += delta * lerpf(5.0, 11.0, velocity_ratio)
-        var bob := absf(sin(stride_phase)) * 0.018 * motion_blend
-        visual_model.position.y = lerpf(visual_model.position.y, model_rest_y + bob, blending)
-        visual_model.rotation.z = lerpf(visual_model.rotation.z, sin(stride_phase) * 0.018 * motion_blend, blending)
+        stride_phase += delta * lerpf(5.0, 11.0, speed_ratio)
+        visual_model.position.y = lerpf(visual_model.position.y, model_rest_y + absf(sin(stride_phase)) * 0.018 * motion_blend, minf(1.0, delta * 8.0))
 
 func _model_bounds(root: Node3D) -> AABB:
     var combined := AABB()
@@ -266,29 +286,24 @@ func _create_character_light() -> void:
 func _update_camera(delta: float) -> void:
     if camera == null or goblin == null:
         return
-    var focus := goblin.global_position + Vector3(0, 0.85, 0)
-    var horizontal := orbit_distance * cos(orbit_pitch)
-    var offset := Vector3(sin(orbit_yaw) * horizontal, sin(orbit_pitch) * orbit_distance + 0.15, cos(orbit_yaw) * horizontal)
-    camera.global_position = camera.global_position.lerp(focus + offset, minf(1.0, delta * 8.0))
+    # Locked third-person follow: Gribnok always faces away from the camera.
+    var focus := goblin.global_position + Vector3(0, 0.95, 0)
+    var destination := focus + Vector3(0.0, 0.65, orbit_distance)
+    camera.global_position = camera.global_position.lerp(destination, minf(1.0, delta * 10.0))
     camera.look_at(focus)
 
 func _unhandled_input(event: InputEvent) -> void:
-    if event is InputEventMouseButton:
-        if event.button_index == MOUSE_BUTTON_RIGHT:
-            inspecting = event.pressed
-        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            orbit_distance = maxf(1.4, orbit_distance - 0.25)
-        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+    if event is InputEventMouseButton and event.pressed:
+        if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            orbit_distance = maxf(2.2, orbit_distance - 0.25)
+        elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
             orbit_distance = minf(7.0, orbit_distance + 0.25)
-    elif event is InputEventMouseMotion and inspecting:
-        orbit_yaw -= event.relative.x * 0.007
-        orbit_pitch = clampf(orbit_pitch - event.relative.y * 0.005, -0.35, 0.95)
 
 func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  GRIBNOK RIG + ANIMASYON v0.6  |  WASD hareket  |  SHIFT kos  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
+    label.text = "GOBLIN AGES  |  GRIBNOK HAREKET SISTEMI  |  W ileri  S geri  A/D yan adim  SHIFT kos  |  Kamera arkada sabit"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 19)
     layer.add_child(label)
@@ -305,17 +320,20 @@ func _physics_process(delta: float) -> void:
         input_dir.y += 1.0
     input_dir = input_dir.limit_length(1.0)
     var running := Input.is_key_pressed(KEY_SHIFT)
-    var max_speed := sprint_speed if running else goblin_speed
-    var requested := Vector3(input_dir.x, 0.0, input_dir.y) * max_speed
-    var response := acceleration if input_dir.length_squared() > 0.001 else deceleration
-    movement_velocity = movement_velocity.move_toward(requested, response * delta)
-    if movement_velocity.length() < 0.015:
+    var max_speed := sprint_speed if running and input_dir.y < 0.0 and absf(input_dir.x) < 0.01 else goblin_speed
+    if input_dir.y > 0.0:
+        max_speed = 2.4
+    elif absf(input_dir.x) > 0.0:
+        max_speed = 3.2
+    var desired_velocity := Vector3(input_dir.x, 0.0, input_dir.y) * max_speed
+    var responsiveness := acceleration if input_dir.length_squared() > 0.01 else deceleration
+    movement_velocity = movement_velocity.move_toward(desired_velocity, responsiveness * delta)
+    if movement_velocity.length_squared() < 0.0002:
         movement_velocity = Vector3.ZERO
     goblin.global_position += movement_velocity * delta
-    if movement_velocity.length_squared() > 0.04:
-        var desired_yaw := atan2(-movement_velocity.x, -movement_velocity.z)
-        goblin.rotation.y = lerp_angle(goblin.rotation.y, desired_yaw, minf(1.0, delta * turn_speed))
-    _animate_character(delta, clampf(movement_velocity.length() / sprint_speed, 0.0, 1.0), running)
+    # Intentionally do not rotate the character during backward walk or strafe.
+    goblin.rotation.y = lerp_angle(goblin.rotation.y, 0.0, minf(1.0, turn_speed * delta))
+    _animate_character(delta, movement_velocity.length(), input_dir, running)
     _update_camera(delta)
     if camera != null and goblin != null:
         var focus := goblin.global_position + Vector3(0, 0.95, 0)
