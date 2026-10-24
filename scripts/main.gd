@@ -37,10 +37,50 @@ func _create_floor() -> void:
     ground.material_override = mat
     add_child(ground)
 
+const GRIBNOK_MODEL := "res://assets/characters/gribnok/Gribnok_GoblinAges_sculpt_v0_2.glb"
+
 func _create_goblin() -> void:
     goblin = Node3D.new()
-    goblin.name = "GoblinPlaceholder"
+    goblin.name = "Gribnok"
     add_child(goblin)
+    if ResourceLoader.exists(GRIBNOK_MODEL):
+        var model_scene := load(GRIBNOK_MODEL) as PackedScene
+        if model_scene != null:
+            var model := model_scene.instantiate() as Node3D
+            if model != null:
+                model.name = "GribnokModel"
+                goblin.add_child(model)
+                # Normalize the full imported model to 1.5 meters tall.
+                var bounds := _model_bounds(model)
+                if bounds.size.y > 0.001:
+                    model.scale = Vector3.ONE * (1.5 / bounds.size.y)
+                    model.position = Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z) * model.scale.x
+                print("Gribnok v0.2 model loaded.")
+                return
+    push_warning("Gribnok GLB missing; copy it to: " + GRIBNOK_MODEL)
+    _create_placeholder_goblin()
+
+func _model_bounds(root: Node3D) -> AABB:
+    var combined := AABB()
+    var initialized := false
+    var nodes: Array[Node] = [root]
+    while not nodes.is_empty():
+        var current: Node = nodes.pop_back()
+        if current is MeshInstance3D:
+            var mesh_node := current as MeshInstance3D
+            if mesh_node.mesh != null:
+                var local_aabb := mesh_node.get_aabb()
+                var xform := root.global_transform.affine_inverse() * mesh_node.global_transform
+                var converted := xform * local_aabb
+                if initialized:
+                    combined = combined.merge(converted)
+                else:
+                    combined = converted
+                    initialized = true
+        nodes.append_array(current.get_children())
+    return combined
+
+func _create_placeholder_goblin() -> void:
     var body := MeshInstance3D.new()
     var capsule := CapsuleMesh.new()
     capsule.radius = 0.45
@@ -51,17 +91,6 @@ func _create_goblin() -> void:
     mat.albedo_color = Color("79b95e")
     body.material_override = mat
     goblin.add_child(body)
-    for side in [-1.0, 1.0]:
-        var eye := MeshInstance3D.new()
-        var sphere := SphereMesh.new()
-        sphere.radius = 0.07
-        sphere.height = 0.14
-        eye.mesh = sphere
-        eye.position = Vector3(side * 0.17, 1.13, -0.39)
-        var eye_mat := StandardMaterial3D.new()
-        eye_mat.albedo_color = Color("fff2cc")
-        eye.material_override = eye_mat
-        goblin.add_child(eye)
 
 func _create_camera() -> void:
     camera = Camera3D.new()
