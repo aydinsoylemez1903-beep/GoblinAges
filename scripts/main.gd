@@ -5,10 +5,11 @@ var goblin: Node3D
 var camera: Camera3D
 var goblin_speed := 5.0
 var orbit_yaw := 0.0
-var orbit_pitch := 0.18
+var orbit_pitch := 0.08
 var orbit_distance := 2.8
 var inspecting := false
 var key_light: OmniLight3D
+var fill_light: OmniLight3D
 
 func _ready() -> void:
     _create_environment()
@@ -21,16 +22,27 @@ func _ready() -> void:
 func _create_environment() -> void:
     var world := WorldEnvironment.new()
     var env := Environment.new()
-    env.background_mode = Environment.BG_COLOR
-    env.background_color = Color("182333")
+    var sky := Sky.new()
+    var sky_mat := ProceduralSkyMaterial.new()
+    sky_mat.sky_top_color = Color("#528bd6")
+    sky_mat.sky_horizon_color = Color("#c2dcf5")
+    sky_mat.ground_bottom_color = Color("#394a42")
+    sky_mat.ground_horizon_color = Color("#9db49c")
+    sky.sky_material = sky_mat
+    env.background_mode = Environment.BG_SKY
+    env.sky = sky
+    # Consistent daylight even on the Compatibility renderer.
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    env.ambient_light_color = Color("b2c5cd")
-    env.ambient_light_energy = 0.65
+    env.ambient_light_color = Color("#d4dff0")
+    env.ambient_light_energy = 1.15
     world.environment = env
     add_child(world)
     var sun := DirectionalLight3D.new()
-    sun.rotation_degrees = Vector3(-55, -35, 0)
-    sun.light_energy = 1.7
+    sun.name = "DaylightSun"
+    sun.rotation_degrees = Vector3(-50, -25, 0)
+    sun.light_color = Color("#fff0d7")
+    sun.light_energy = 1.8
+    sun.shadow_enabled = false
     add_child(sun)
 
 func _create_floor() -> void:
@@ -39,7 +51,7 @@ func _create_floor() -> void:
     mesh.size = Vector2(50, 50)
     ground.mesh = mesh
     var mat := StandardMaterial3D.new()
-    mat.albedo_color = Color("365447")
+    mat.albedo_color = Color("#456853")
     ground.material_override = mat
     add_child(ground)
 
@@ -176,19 +188,27 @@ func _create_camera() -> void:
 
 func _create_character_light() -> void:
     key_light = OmniLight3D.new()
-    key_light.name = "GribnokKeyLight"
-    key_light.light_color = Color("#ffe8d2")
-    key_light.light_energy = 1.5
-    key_light.omni_range = 5.0
+    key_light.name = "GribnokWarmKey"
+    key_light.light_color = Color("#ffead5")
+    key_light.light_energy = 1.6
+    key_light.omni_range = 4.5
     key_light.shadow_enabled = false
     add_child(key_light)
+
+    fill_light = OmniLight3D.new()
+    fill_light.name = "CameraFacingSoftFill"
+    fill_light.light_color = Color("#f3f6ff")
+    fill_light.light_energy = 2.0
+    fill_light.omni_range = 4.2
+    fill_light.shadow_enabled = false
+    add_child(fill_light)
 
 func _update_camera(delta: float) -> void:
     if camera == null or goblin == null:
         return
     var focus := goblin.global_position + Vector3(0, 0.85, 0)
     var horizontal := orbit_distance * cos(orbit_pitch)
-    var offset := Vector3(sin(orbit_yaw) * horizontal, sin(orbit_pitch) * orbit_distance + 0.5, cos(orbit_yaw) * horizontal)
+    var offset := Vector3(sin(orbit_yaw) * horizontal, sin(orbit_pitch) * orbit_distance + 0.15, cos(orbit_yaw) * horizontal)
     camera.global_position = camera.global_position.lerp(focus + offset, minf(1.0, delta * 8.0))
     camera.look_at(focus)
 
@@ -208,7 +228,7 @@ func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  GRIBNOK INCELEME v0.3  |  WASD hareket  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
+    label.text = "GOBLIN AGES  |  GRIBNOK GUN ISIGI v0.4  |  WASD hareket  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 19)
     layer.add_child(label)
@@ -228,5 +248,10 @@ func _physics_process(delta: float) -> void:
         goblin.position += Vector3(input_dir.x, 0, input_dir.y) * goblin_speed * delta
         goblin.rotation.y = atan2(-input_dir.x, -input_dir.y)
     _update_camera(delta)
-    if key_light != null:
-        key_light.global_position = goblin.global_position + Vector3(-1.1, 2.25, 1.45)
+    if camera != null and goblin != null:
+        var focus := goblin.global_position + Vector3(0, 0.95, 0)
+        var toward_camera := (camera.global_position - focus).normalized()
+        if key_light != null:
+            key_light.global_position = focus + toward_camera * 1.8 + Vector3(-0.8, 0.65, 0)
+        if fill_light != null:
+            fill_light.global_position = focus + toward_camera * 1.55 + camera.global_transform.basis.x * 0.7 + Vector3(0, 0.2, 0)
