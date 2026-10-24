@@ -3,7 +3,18 @@ extends Node3D
 
 var goblin: Node3D
 var camera: Camera3D
-var goblin_speed := 5.0
+var goblin_speed := 4.2
+var sprint_speed := 6.6
+var acceleration := 11.0
+var deceleration := 15.0
+var turn_speed := 9.0
+var movement_velocity := Vector3.ZERO
+var visual_model: Node3D
+var model_rest_y := 0.0
+var stride_phase := 0.0
+var motion_blend := 0.0
+var locomotion_player: AnimationPlayer
+var active_animation := ""
 var orbit_yaw := 0.0
 var orbit_pitch := 0.08
 var orbit_distance := 2.8
@@ -70,11 +81,14 @@ func _create_goblin() -> void:
             if model != null:
                 model.name = "GribnokModel"
                 goblin.add_child(model)
+                visual_model = model
                 var bounds := _model_bounds(model)
                 if bounds.size.y > 0.001:
                     var factor := 1.5 / bounds.size.y
                     model.scale = Vector3.ONE * factor
                     model.position = Vector3(-bounds.get_center().x, -bounds.position.y, -bounds.get_center().z) * factor
+                model_rest_y = model.position.y
+                _locate_animations(model)
                 if selected_path == GRIBNOK_OLD_MODEL:
                     _fix_gribnok_materials(model)
                     push_warning("Old Gribnok v0.2 active. Place new GLB at " + GRIBNOK_MODEL)
@@ -146,6 +160,37 @@ func _fallback_part_color(part: String) -> Color:
     if "vest" in n or "leather" in n or "pouch" in n or "satchel" in n or "belt" in n:
         return Color("#754a32")
     return Color("#87a93e")
+
+func _locate_animations(root: Node3D) -> void:
+    # Future rigged GLB support: play imported clips with smooth cross-fades.
+    locomotion_player = null
+    var pending: Array[Node] = [root]
+    while not pending.is_empty():
+        var item: Node = pending.pop_back()
+        if item is AnimationPlayer:
+            locomotion_player = item as AnimationPlayer
+            locomotion_player.playback_default_blend_time = 0.22
+            return
+        pending.append_array(item.get_children())
+
+func _animate_character(delta: float, velocity_ratio: float, running: bool) -> void:
+    var blending := minf(1.0, delta * 8.0)
+    motion_blend = lerpf(motion_blend, velocity_ratio, blending)
+    if locomotion_player != null:
+        var desired := "Idle"
+        if velocity_ratio > 0.12:
+            desired = "Run" if running else "Walk"
+        if desired != active_animation and locomotion_player.has_animation(desired):
+            locomotion_player.play(desired, 0.23)
+            active_animation = desired
+        return
+    # No skeletal rig exists in the current GLB. Gentle root movement preview only.
+    # This never alters skinned vertices, limb poses or materials.
+    if visual_model != null:
+        stride_phase += delta * lerpf(5.0, 11.0, velocity_ratio)
+        var bob := absf(sin(stride_phase)) * 0.018 * motion_blend
+        visual_model.position.y = lerpf(visual_model.position.y, model_rest_y + bob, blending)
+        visual_model.rotation.z = lerpf(visual_model.rotation.z, sin(stride_phase) * 0.018 * motion_blend, blending)
 
 func _model_bounds(root: Node3D) -> AABB:
     var combined := AABB()
@@ -228,7 +273,7 @@ func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  GRIBNOK GUN ISIGI v0.4  |  WASD hareket  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
+    label.text = "GOBLIN AGES  |  GRIBNOK HAREKET v0.5  |  WASD hareket  |  SHIFT kos  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 19)
     layer.add_child(label)
@@ -243,10 +288,19 @@ func _physics_process(delta: float) -> void:
         input_dir.y -= 1.0
     if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
         input_dir.y += 1.0
-    if input_dir.length_squared() > 0.0:
-        input_dir = input_dir.normalized()
-        goblin.position += Vector3(input_dir.x, 0, input_dir.y) * goblin_speed * delta
-        goblin.rotation.y = atan2(-input_dir.x, -input_dir.y)
+    input_dir = input_dir.limit_length(1.0)
+    var running := Input.is_key_pressed(KEY_SHIFT)
+    var max_speed := sprint_speed if running else goblin_speed
+    var requested := Vector3(input_dir.x, 0.0, input_dir.y) * max_speed
+    var response := acceleration if input_dir.length_squared() > 0.001 else deceleration
+    movement_velocity = movement_velocity.move_toward(requested, response * delta)
+    if movement_velocity.length() < 0.015:
+        movement_velocity = Vector3.ZERO
+    goblin.global_position += movement_velocity * delta
+    if movement_velocity.length_squared() > 0.04:
+        var desired_yaw := atan2(-movement_velocity.x, -movement_velocity.z)
+        goblin.rotation.y = lerp_angle(goblin.rotation.y, desired_yaw, minf(1.0, delta * turn_speed))
+    _animate_character(delta, clampf(movement_velocity.length() / sprint_speed, 0.0, 1.0), running)
     _update_camera(delta)
     if camera != null and goblin != null:
         var focus := goblin.global_position + Vector3(0, 0.95, 0)
