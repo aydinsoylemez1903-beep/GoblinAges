@@ -1,0 +1,7 @@
+# Godot-generated project cache and editor state
+.godot/
+# Exported binaries and temporary files
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
