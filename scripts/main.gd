@@ -14,6 +14,7 @@ var model_rest_y := 0.0
 var stride_phase := 0.0
 var motion_blend := 0.0
 var locomotion_player: AnimationPlayer
+var animation_library_prefix := ""
 var active_animation := ""
 var orbit_yaw := 0.0
 var orbit_pitch := 0.08
@@ -66,6 +67,7 @@ func _create_floor() -> void:
     ground.material_override = mat
     add_child(ground)
 
+const GRIBNOK_RIGGED := "res://assets/characters/gribnok/Gribnok_Rig_Animated_v1.glb"
 const GRIBNOK_MODEL := "res://assets/characters/gribnok/Gribnok_Final.glb"
 const GRIBNOK_OLD_MODEL := "res://assets/characters/gribnok/Gribnok_GoblinAges_sculpt_v0_2.glb"
 
@@ -73,7 +75,7 @@ func _create_goblin() -> void:
     goblin = Node3D.new()
     goblin.name = "Gribnok"
     add_child(goblin)
-    var selected_path := GRIBNOK_MODEL if ResourceLoader.exists(GRIBNOK_MODEL) else GRIBNOK_OLD_MODEL
+    var selected_path := GRIBNOK_RIGGED if ResourceLoader.exists(GRIBNOK_RIGGED) else (GRIBNOK_MODEL if ResourceLoader.exists(GRIBNOK_MODEL) else GRIBNOK_OLD_MODEL)
     if ResourceLoader.exists(selected_path):
         var model_scene := load(selected_path) as PackedScene
         if model_scene != null:
@@ -162,16 +164,28 @@ func _fallback_part_color(part: String) -> Color:
     return Color("#87a93e")
 
 func _locate_animations(root: Node3D) -> void:
-    # Future rigged GLB support: play imported clips with smooth cross-fades.
     locomotion_player = null
+    active_animation = ""
     var pending: Array[Node] = [root]
     while not pending.is_empty():
         var item: Node = pending.pop_back()
         if item is AnimationPlayer:
             locomotion_player = item as AnimationPlayer
-            locomotion_player.playback_default_blend_time = 0.22
+            locomotion_player.playback_default_blend_time = 0.27
+            print("Gribnok animation clips: ", locomotion_player.get_animation_list())
             return
         pending.append_array(item.get_children())
+
+func _resolve_animation(requested: String) -> String:
+    if locomotion_player == null:
+        return ""
+    if locomotion_player.has_animation(requested):
+        return requested
+    for anim_name in locomotion_player.get_animation_list():
+        var anim: String = str(anim_name)
+        if anim.to_lower().ends_with(requested.to_lower()) or anim.to_lower().contains(requested.to_lower()):
+            return anim
+    return ""
 
 func _animate_character(delta: float, velocity_ratio: float, running: bool) -> void:
     var blending := minf(1.0, delta * 8.0)
@@ -180,9 +194,10 @@ func _animate_character(delta: float, velocity_ratio: float, running: bool) -> v
         var desired := "Idle"
         if velocity_ratio > 0.12:
             desired = "Run" if running else "Walk"
-        if desired != active_animation and locomotion_player.has_animation(desired):
-            locomotion_player.play(desired, 0.23)
-            active_animation = desired
+        var resolved := _resolve_animation(desired)
+        if resolved != "" and resolved != active_animation:
+            locomotion_player.play(resolved, 0.27)
+            active_animation = resolved
         return
     # No skeletal rig exists in the current GLB. Gentle root movement preview only.
     # This never alters skinned vertices, limb poses or materials.
@@ -273,7 +288,7 @@ func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  GRIBNOK HAREKET v0.5  |  WASD hareket  |  SHIFT kos  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
+    label.text = "GOBLIN AGES  |  GRIBNOK RIG + ANIMASYON v0.6  |  WASD hareket  |  SHIFT kos  |  Sag tik + fare: dondur  |  Tekerlek: yakinlas"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 19)
     layer.add_child(label)
