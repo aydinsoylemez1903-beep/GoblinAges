@@ -94,7 +94,7 @@ func _create_placeholder_goblin() -> void:
 
 func _create_camera() -> void:
     camera = Camera3D.new()
-    camera.position = Vector3(0, 5.5, 9.0)
+    camera.position = Vector3(0, 2.4, 3.8)
     camera.current = true
     add_child(camera)
     camera.look_at(Vector3(0, 0.9, 0))
@@ -103,7 +103,7 @@ func _create_ui() -> void:
     var layer := CanvasLayer.new()
     add_child(layer)
     var label := Label.new()
-    label.text = "GOBLIN AGES  |  İlk PC testi  |  Hareket: W A S D / Ok tuşları"
+    label.text = "GOBLIN AGES  |  Gribnok v0.2 yakın kamera testi  |  WASD"
     label.position = Vector2(24, 20)
     label.add_theme_font_size_override("font_size", 22)
     layer.add_child(label)
@@ -123,6 +123,6 @@ func _physics_process(delta: float) -> void:
         goblin.position += Vector3(input_dir.x, 0, input_dir.y) * goblin_speed * delta
         goblin.rotation.y = atan2(-input_dir.x, -input_dir.y)
     if camera != null:
-        var target := goblin.position + Vector3(0, 5.5, 9.0)
+        var target := goblin.position + Vector3(0, 2.4, 3.8)
         camera.position = camera.position.lerp(target, minf(1.0, delta * 4.0))
         camera.look_at(goblin.position + Vector3(0, 0.9, 0))
